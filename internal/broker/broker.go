@@ -22,6 +22,11 @@ type Message[T any] struct {
 	Payload T      `json:"payload"`
 }
 
+type WSConnWithID struct {
+	ID   string
+	Conn *websocket.Conn
+}
+
 func (b *Broker) Subscribe() {
 	fmt.Println("Subscribe")
 }
@@ -38,7 +43,7 @@ func NewBroker() *Broker {
 	}
 }
 
-func readMessages(ctx context.Context, c *websocket.Conn) error {
+func readAndValidateMessages(ctx context.Context, c *websocket.Conn) error {
 	for {
 		var incomingMessage Message[any]
 		err := wsjson.Read(ctx, c, &incomingMessage)
@@ -50,8 +55,7 @@ func readMessages(ctx context.Context, c *websocket.Conn) error {
 	}
 }
 
-func NewWebSocketHandler(b *Broker) func(w http.ResponseWriter, r *http.Request) {
-
+func NewWebSocketHandler(b *Broker, connectionOutChan chan<- WSConnWithID) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {
@@ -63,12 +67,17 @@ func NewWebSocketHandler(b *Broker) func(w http.ResponseWriter, r *http.Request)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute*10)
 		defer cancel()
 
-		go func() {
-			err := readMessages(ctx, c)
-			if err != nil {
-				cancel()
-			}
-		}()
+		connectionOutChan <- WSConnWithID{
+			ID:   connectionId,
+			Conn: c,
+		}
+
+		// go func() {
+		// 	err := readAndValidateMessages(ctx, c)
+		// 	if err != nil {
+		// 		cancel()
+		// 	}
+		// }()
 
 		t := time.NewTicker(10 * time.Second)
 		for {
